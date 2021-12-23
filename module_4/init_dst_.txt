@@ -1,0 +1,356 @@
+-- dsp_project
+
+-- 4.1 База данных содержит список аэропортов практически всех
+-- крупных городов России. В большинстве городов есть только один аэропорт. Исключение составляет:
+with b as
+(
+select 
+     a.city,
+     a.airport_code,
+     row_number () over (partition by a.city order by a.airport_code) as airports_number
+from
+    dst_project.airports a
+order by 1
+) 
+select
+     b.city
+from 
+     b
+where 
+     airports_number > 1
+group by 1
+order by 1
+
+
+-- 4.2.1 Таблица рейсов содержит всю информацию о прошлых,
+-- текущих и запланированных рейсах. Сколько всего статусов для рейсов определено в таблице?
+select
+     count(st.status)
+from
+    (
+      select distinct
+          f.status
+      from
+         dst_project.flights f
+      group by 1
+     ) st
+
+
+-- 4.2.2 Какое количество самолетов находятся в воздухе на
+-- момент среза в базе (статус рейса «самолёт уже вылетел и находится в воздухе»).
+select
+     count(f.status)
+from
+     dst_project.flights f
+where
+     f.status = 'Departed'
+
+-- 4.2.3 Места определяют схему салона каждой модели.
+-- Сколько мест имеет самолет модели  (Boeing 777-300)?
+select
+     count(sts.seat_no)
+from
+    dst_project.seats sts
+     join dst_project.aircrafts acfts
+         on sts.aircraft_code = acfts.aircraft_code
+where 
+     acfts.model = 'Boeing 777-300'
+
+-- 4.2.4 Сколько состоявшихся (фактических) рейсов было
+-- совершено между 1 апреля 2017 года и 1 сентября 2017 года?
+select
+     count(*)
+from
+     dst_project.flights fl
+where fl.actual_arrival between '2017-04-01' and '2017-09-01'
+      and fl.status = 'Arrived'
+group by fl.status
+
+-- 4.3.1 Сколько всего рейсов было отменено по данным базы?
+select
+     count(*)
+from
+     dst_project.flights fl
+where
+      fl.status = 'Cancelled'
+group by fl.status
+
+
+-- 4.3.2 Сколько самолетов моделей типа Boeing, Sukhoi Superjet,
+-- Airbus находится в базе авиаперевозок?
+with a as
+(
+select
+     arcfts.model,
+     count(*) over (partition by arcfts.model order by arcfts.model) model_qty
+from
+     dst_project.aircrafts arcfts
+group by 1
+order by 1
+)
+select 
+     'Boeing',
+     sum(model_qty) over()
+from a
+where 
+     a.model like 'Boeing %'
+union
+select 
+     'Sukhoi Superjet',
+     sum(model_qty) over()
+from a
+where 
+     a.model like 'Sukhoi Superjet%'
+union
+select 
+     'Airbus' craft_model,
+     sum(model_qty) over() total_qty
+from a
+where 
+     a.model like 'Airbus %'
+
+-- 4.3.3 В какой части (частях) света находится больше аэропортов?
+with a as
+(
+select
+     arpts.timezone,
+     count(*) over(order by arpts.timezone) as qty
+from
+     dst_project.airports arpts
+group by 1
+order by 1
+)
+select
+     'Asia' world_part,
+     sum(a.qty) over() as qty_total
+from 
+     a
+where
+     a.timezone like 'Asia/%'
+union
+select
+     'Europe',
+     sum(a.qty) over() as qty_total
+from 
+     a
+where
+     a.timezone like 'Europe/%'
+
+-- 4.3.4 У какого рейса была самая большая задержка прибытия за все время сбора данных?
+-- Введите id рейса (flight_id).
+select
+     fl.flight_id,
+     actual_arrival - scheduled_arrival as delay
+from
+     dst_project.flights fl
+where
+     fl.status = 'Arrived'
+order by 2 desc
+
+-- 4.4.1 Когда был запланирован самый первый вылет, сохраненный в базе данных?
+select 
+     fl.scheduled_departure
+from 
+     dst_project.flights fl
+order by 1 asc
+limit 1
+
+-- 4.4.2 Сколько минут составляет запланированное время полета в самом длительном рейсе?
+select
+     date_part('hour', fl.scheduled_arrival - fl.scheduled_departure) * 60 
+     + date_part('minute', fl.scheduled_arrival - fl.scheduled_departure) flight_time
+from
+     dst_project.flights fl
+group by 1
+order by 1 desc
+limit 1
+
+-- 4.4.3 Между какими аэропортами пролегает самый длительный по времени запланированный рейс?
+select
+     date_part('hour', fl.scheduled_arrival - fl.scheduled_departure) * 60 
+     + date_part('minute', fl.scheduled_arrival - fl.scheduled_departure) as flight_time,
+     fl.departure_airport,
+     fl.arrival_airport
+from
+     dst_project.flights fl
+group by 1, 2, 3
+order by 1 desc
+
+-- 4.4.4 Сколько составляет средняя дальность полета среди всех самолетов в минутах?
+-- Секунды округляются в меньшую сторону (отбрасываются до минут).
+select
+     avg(date_part('hour', fl.scheduled_arrival - fl.scheduled_departure) * 60 
+     + date_part('minute', fl.scheduled_arrival - fl.scheduled_departure)) as flight_time
+from
+     dst_project.flights fl
+
+-- 4.5.1 Мест какого класса у SU9 больше всего?
+select distinct
+     s.fare_conditions,
+     count(*) over (partition by s.fare_conditions) as seats_qty
+from
+     dst_project.seats s
+where
+     s.aircraft_code = 'SU9'
+
+-- 4.5.2 Какую самую минимальную стоимость составило бронирование за всю историю?
+select
+     min(b.total_amount)
+from 
+     dst_project.bookings b
+
+-- 4.5.3 Какой номер места был у пассажира с id = 4313 788533?
+select
+     bp.seat_no
+from 
+     dst_project.tickets t
+     join dst_project.boarding_passes bp
+         on t.ticket_no = bp.ticket_no
+where
+     t.passenger_id = '4313 788533'
+
+-- 5.1.1 Анапа — курортный город на юге России. Сколько рейсов прибыло в Анапу за 2017 год?
+select
+     count(fl.flight_id)
+from 
+     dst_project.flights fl
+where
+     fl.arrival_airport = 'AAQ' and actual_arrival between '2017-01-01' and '2017-12-31'
+
+-- 5.1.2 Сколько рейсов из Анапы вылетело зимой 2017 года?
+select
+     count(fl.flight_id)
+from 
+     dst_project.flights fl
+where
+     fl.departure_airport = 'AAQ'
+and  date_part('year', fl.actual_departure) = '2017'
+and  date_part('month', fl.actual_departure) in (12, 1, 2)
+
+-- 5.1.3 Посчитайте количество отмененных рейсов из Анапы за все время.
+select
+     count(fl.flight_id)
+from 
+     dst_project.flights fl
+where
+     fl.departure_airport = 'AAQ'
+and  fl.status = 'Cancelled'
+
+-- 5.1.4 Сколько рейсов из Анапы не летают в Москву?
+select
+     count(fl.flight_id)
+from 
+     dst_project.flights fl
+where
+     fl.departure_airport = 'AAQ'
+     and fl.arrival_airport not in ('SVO', 'VKO', 'DME')
+
+-- 5.1.5 Какая модель самолета летящего на рейсах из Анапы имеет больше всего мест?
+select
+     arcfts.model,
+     count(sts.seat_no) seats_qty
+from 
+     dst_project.aircrafts arcfts
+         join dst_project.seats sts
+             on arcfts.aircraft_code = sts.aircraft_code
+         join dst_project. flights f
+             on arcfts.aircraft_code = f.aircraft_code
+where
+     f.departure_airport = 'AAQ'
+group by 1
+limit 1
+
+------------------------------------------------------------------------------------------------
+
+-- Итоговый проект (итоговый дотасет разбит на 2 части для оптимизации скорости обработки данных)
+
+-- ДАТАСЕТ №1 - заполняемость рейсов (количество не проданных билетов)
+with a as
+(
+select distinct 
+      fl.flight_id,
+      fl.arrival_airport,
+      count(tkfl.ticket_no) as sold_tickets,
+         (select
+             count(sts.seat_no)
+          from 
+             dst_project.seats sts
+          where fl.aircraft_code = sts.aircraft_code) total_seats
+from dst_project.flights fl
+     join dst_project.ticket_flights tkfl
+         on fl.flight_id = tkfl.flight_id
+where departure_airport = 'AAQ'
+  and (date_trunc('month', scheduled_departure) in ('2017-01-01','2017-02-01', '2017-12-01'))
+  and status not in ('Cancelled')
+group by 
+     fl.flight_id
+)
+select
+     *,
+     a.total_seats - a.sold_tickets as unsold_tickets,
+     100 - a.sold_tickets * 100 / a.total_seats as unsold_ratio
+from 
+     a
+order by unsold_ratio desc
+limit 4
+
+-- итоговый запрос выводит 4 рейса с загрузкой ниже 75% (unsold_ratio показывает процент не проданных билетов на рейс)
+
+
+-- ДАТАСЕТ №2 Анализ рентабельности (соотношение дохода и расхода на выполнение рейса)
+with a as
+(
+select
+     fl.flight_id,
+     fl.arrival_airport,
+     fl.aircraft_code,
+     date_part('hour', fl.scheduled_arrival - fl.scheduled_departure) * 60 
+     + date_part('minute', fl.scheduled_arrival - fl.scheduled_departure) as flight_time_mints,
+     sum(tkfl.amount) as flight_income
+from
+     dst_project.flights fl
+         join dst_project.ticket_flights tkfl
+             on fl.flight_id = tkfl.flight_id
+where departure_airport = 'AAQ'
+  and (date_trunc('month', scheduled_departure) in ('2017-01-01','2017-02-01', '2017-12-01'))
+  and status not in ('Cancelled')
+group by 
+     fl.flight_id
+),
+b as
+(
+select
+     *,
+     case
+         when a.aircraft_code = '733' then a.flight_time_mints * 40 * 41.45
+         else a.flight_time_mints * 28.5 * 41.45
+     end fuel_expenses
+from
+    a
+),
+c as
+(
+select
+     *,
+     b.fuel_expenses * 100 / 26 potential_total_expenses
+from
+     b
+),
+d as
+(
+select
+     *,
+     c.flight_income - c.potential_total_expenses potential_profit
+from c
+order by potential_profit
+)
+select
+     *,
+     potential_profit / potential_total_expenses * 100 - 100 profitability
+from d
+order by profitability asc
+limit 6
+
+-- итоговый запрос выводит 6 рейсов с прибыльностью менее 30% (коэффициент profitability)
+-- комментарий:
+-- potential_total_expenses рассчитывался, исходя из данных, что расходы на топливо составляют в среднем 26% от общих расходов на выполнение рейса (взято из открытых источников).
